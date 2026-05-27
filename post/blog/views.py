@@ -346,16 +346,22 @@
 
 
 # произали не которые изминение 
-from django.shortcuts import get_object_or_404
 from django.db.models import F, Q
+from django.shortcuts import get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters, generics, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework_simplejwt.views import TokenRefreshView
 
 from .models import Category, Comment, Favorite, Message, Post, User
+from .permissions import (
+    IsAdminOrReadOnly,
+    IsAuthorOrReadOnly,
+    IsOwner,
+    IsOwnerOrReadOnly,
+    IsSenderOrRecipient,
+)
 from .serializers import (
     CategorySerializer,
     ChangePasswordSerializer,
@@ -396,12 +402,10 @@ class LoginView(generics.GenericAPIView):
 class LogoutView(generics.GenericAPIView):
     """POST /api/auth/logout/ — выход, помещает refresh-токен в blacklist."""
     permission_classes = [permissions.IsAuthenticated]
-    # serializer_class больше не требуется
 
     def post(self, request):
         try:
-            refresh_token = request.data["refresh"]
-            token = RefreshToken(refresh_token)
+            token = RefreshToken(request.data["refresh"])
             token.blacklist()
             return Response(
                 {"detail": "Вы успешно вышли из системы."},
@@ -439,8 +443,13 @@ class UserProfileView(generics.RetrieveAPIView):
 
 
 class MeView(generics.RetrieveUpdateAPIView):
-    """GET /api/users/me/ — свой профиль. PUT/PATCH — редактирование."""
-    permission_classes = [permissions.IsAuthenticated]
+    """
+    GET   /api/users/me/ — свой профиль.
+    PUT   /api/users/me/ — редактировать профиль.
+    PATCH /api/users/me/ — частично редактировать.
+    """
+    # IsOwner гарантирует что пользователь видит и редактирует только себя
+    permission_classes = [IsOwner]
 
     def get_object(self):
         return self.request.user
@@ -454,10 +463,15 @@ class MeView(generics.RetrieveUpdateAPIView):
 # ─────────────────────────── CATEGORY ───────────────────────────
 
 class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
-    """GET /api/categories/ — список и детали категорий."""
+    """
+    GET /api/categories/      — список категорий (все).
+    GET /api/categories/<id>/ — одна категория (все).
+    Создание/удаление — только через /admin/ (IsAdminOrReadOnly).
+    """
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
-    permission_classes = [permissions.AllowAny]
+    # Читать могут все, менять — только is_staff
+    permission_classes = [IsAdminOrReadOnly]
 
 
 # ──────────────────────────── POST ──────────────────────────────
@@ -486,36 +500,29 @@ class PostViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         if self.action in ("list", "retrieve"):
+            # Читать посты могут все
             return [permissions.AllowAny()]
-        return [permissions.IsAuthenticated()]
+        if self.action == "create":
+            # Создавать — только авторизованные
+            return [permissions.IsAuthenticated()]
+        # update / partial_update / destroy — только автор поста
+        return [IsAuthorOrReadOnly()]
 
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
-        # Атомарное увеличение счётчика просмотров
-        Post.objects.filter(pk=instance.pk).update(views=F('views') + 1)
+        Post.objects.filter(pk=instance.pk).update(views=F("views") + 1)
         instance.refresh_from_db()
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
 
-    def update(self, request, *args, **kwargs):
-        instance = self.get_object()
-        if instance.author != request.user:
-            return Response(
-                {"detail": "Вы не являетесь автором этого поста."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        return super().update(request, *args, **kwargs)
+    # ↓ Ручные проверки author != request.user больше не нужны —
+    #   IsAuthorOrReadOnly.has_object_permission вернёт 403 автоматически
 
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        if instance.author != request.user:
-            return Response(
-                {"detail": "Вы не являетесь автором этого поста."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        return super().destroy(request, *args, **kwargs)
-
-    @action(detail=False, methods=["get"], permission_classes=[permissions.IsAuthenticated])
+    @action(
+        detail=False,
+        methods=["get"],
+        permission_classes=[permissions.IsAuthenticated],
+    )
     def my(self, request):
         """GET /api/posts/my/ — все мои посты включая черновики."""
         queryset = self.get_queryset()
@@ -528,10 +535,10 @@ class PostViewSet(viewsets.ModelViewSet):
 class CommentViewSet(viewsets.ModelViewSet):
     """Комментарии к конкретному посту (вложенный роутер)."""
     serializer_class = CommentSerializer
-    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    # Читать — все. Создавать — авторизованные. Менять/удалять — только автор.
+    permission_classes = [IsAuthorOrReadOnly]
 
     def get_queryset(self):
-        # Убран swagger_fake_view – теперь drf-spectacular всё делает сам
         return Comment.objects.filter(
             post_id=self.kwargs["post_pk"],
             parent=None,
@@ -541,23 +548,8 @@ class CommentViewSet(viewsets.ModelViewSet):
         post = get_object_or_404(Post, pk=self.kwargs["post_pk"])
         serializer.save(author=self.request.user, post=post)
 
-    def update(self, request, *args, **kwargs):
-        instance = self.get_object()
-        if instance.author != request.user:
-            return Response(
-                {"detail": "Вы не являетесь автором этого комментария."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        return super().update(request, *args, **kwargs)
-
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        if instance.author != request.user:
-            return Response(
-                {"detail": "Вы не являетесь автором этого комментария."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        return super().destroy(request, *args, **kwargs)
+    # ↓ Ручные проверки убраны — IsAuthorOrReadOnly обрабатывает их через
+    #   has_object_permission при update / destroy
 
 
 # ─────────────────────────── FAVORITE ───────────────────────────
@@ -565,11 +557,11 @@ class CommentViewSet(viewsets.ModelViewSet):
 class FavoriteViewSet(viewsets.GenericViewSet):
     """Избранные посты текущего пользователя."""
     serializer_class = FavoriteSerializer
-    permission_classes = [permissions.IsAuthenticated]
-    queryset = Favorite.objects.none()  # обязательно для swagger
+    # Только владелец видит и управляет своим избранным
+    permission_classes = [IsOwnerOrReadOnly]
+    queryset = Favorite.objects.none()
 
     def get_queryset(self):
-        # Убран swagger_fake_view
         return Favorite.objects.filter(user=self.request.user).select_related("post")
 
     def list(self, request):
@@ -583,7 +575,9 @@ class FavoriteViewSet(viewsets.GenericViewSet):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def destroy(self, request, pk=None):
+        # get_object_or_404 + IsOwnerOrReadOnly гарантируют что чужое не удалить
         favorite = get_object_or_404(Favorite, pk=pk, user=request.user)
+        self.check_object_permissions(request, favorite)
         favorite.delete()
         return Response(
             {"detail": "Пост убран из избранного."},
@@ -595,9 +589,9 @@ class FavoriteViewSet(viewsets.GenericViewSet):
 
 class MessageViewSet(viewsets.GenericViewSet):
     """Личные сообщения: список диалогов, переписка, отправка, пометка прочитанным."""
-    permission_classes = [permissions.IsAuthenticated]
-    queryset = Message.objects.none()  # обязательно для swagger
-    # Убран get_queryset, он не нужен – queryset строится в методах
+    # Доступ к сообщению — только отправитель или получатель
+    permission_classes = [IsSenderOrRecipient]
+    queryset = Message.objects.none()
 
     def get_serializer_class(self):
         if self.action == "list":
@@ -626,7 +620,6 @@ class MessageViewSet(viewsets.GenericViewSet):
             Q(sender=request.user, recipient=other_user) |
             Q(sender=other_user, recipient=request.user)
         ).order_by("created_at")
-        # Помечаем входящие как прочитанные
         messages.filter(recipient=request.user, is_read=False).update(is_read=True)
         serializer = MessageListSerializer(messages, many=True)
         return Response(serializer.data)
@@ -635,6 +628,8 @@ class MessageViewSet(viewsets.GenericViewSet):
     def read(self, request, pk=None):
         """POST /api/messages/<id>/read/ — отметить одно сообщение прочитанным."""
         message = get_object_or_404(Message, pk=pk, recipient=request.user)
+        # has_object_permission проверяет что request.user — отправитель или получатель
+        self.check_object_permissions(request, message)
         message.is_read = True
         message.save()
         return Response({"detail": "Сообщение отмечено как прочитанное."})
