@@ -32,6 +32,8 @@ class RegisterSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         if attrs["password"] != attrs["password2"]:
             raise serializers.ValidationError({"password": "Пароли не совпадают."})
+        # Дополнительная проверка пароля (validate_password уже вызван, но можно и явно)
+        # validate_password(attrs["password"], user=None)
         return attrs
 
     def create(self, validated_data):
@@ -212,12 +214,20 @@ class CommentSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "author", "created_at")
 
     def get_replies(self, obj):
-        # Возвращаем только первый уровень ответов
         if obj.replies.exists():
             return CommentSerializer(
                 obj.replies.all(), many=True, context=self.context
             ).data
         return []
+
+    def validate_parent(self, value):
+        """Проверяем, что parent относится к тому же посту."""
+        if value:
+            # self.context['view'] содержит kwargs['post_pk']
+            post_id = self.context['view'].kwargs.get('post_pk')
+            if value.post_id != post_id:
+                raise serializers.ValidationError("Ответ должен быть к комментарию этого же поста.")
+        return value
 
     def create(self, validated_data):
         validated_data["author"] = self.context["request"].user

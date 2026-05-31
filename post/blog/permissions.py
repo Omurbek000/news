@@ -8,17 +8,15 @@ class IsAuthorOrReadOnly(permissions.BasePermission):
     """
 
     def has_permission(self, request, view):
-        # Чтение открыто для всех, запись — только авторизованным
         if request.method in permissions.SAFE_METHODS:
             return True
         return request.user and request.user.is_authenticated
 
     def has_object_permission(self, request, view, obj):
-        # Чтение — всем
         if request.method in permissions.SAFE_METHODS:
             return True
-        # Запись — только автору объекта
-        return obj.author == request.user
+        # Для моделей с полем author
+        return getattr(obj, 'author', None) == request.user
 
 
 class IsOwnerOrReadOnly(permissions.BasePermission):
@@ -35,7 +33,7 @@ class IsOwnerOrReadOnly(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
         if request.method in permissions.SAFE_METHODS:
             return True
-        return obj.user == request.user
+        return getattr(obj, 'user', None) == request.user
 
 
 class IsOwner(permissions.BasePermission):
@@ -48,6 +46,9 @@ class IsOwner(permissions.BasePermission):
         return request.user and request.user.is_authenticated
 
     def has_object_permission(self, request, view, obj):
+        # Если объект — сам пользователь
+        if obj == request.user:
+            return True
         # Проверяем оба варианта владельца: user и author
         owner = getattr(obj, "user", None) or getattr(obj, "author", None)
         return owner == request.user

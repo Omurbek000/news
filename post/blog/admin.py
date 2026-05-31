@@ -16,14 +16,12 @@ class CustomUserAdmin(UserAdmin):
     ordering = ("-created_at",)
     readonly_fields = ("created_at", "avatar_preview")
 
-    # Добавляем наши поля в форму редактирования
     fieldsets = UserAdmin.fieldsets + (
         ("Дополнительно", {
             "fields": ("phone", "age", "avatar", "avatar_preview", "bio", "created_at")
         }),
     )
 
-    # Добавляем поля при создании пользователя
     add_fieldsets = UserAdmin.add_fieldsets + (
         ("Дополнительно", {
             "fields": ("email", "phone", "age", "avatar", "bio")
@@ -47,7 +45,7 @@ class CategoryAdmin(admin.ModelAdmin):
     list_display = ("id", "name", "slug", "posts_count")
     list_display_links = ("id", "name")
     search_fields = ("name",)
-    prepopulated_fields = {"slug": ("name",)}  # авто-заполнение slug из name
+    prepopulated_fields = {"slug": ("name",)}
 
     def posts_count(self, obj):
         return obj.posts.count()
@@ -57,7 +55,6 @@ class CategoryAdmin(admin.ModelAdmin):
 # ──────────────────────────── POST ──────────────────────────────
 
 class CommentInline(admin.TabularInline):
-    """Показываем комментарии прямо внутри поста."""
     model = Comment
     extra = 0
     readonly_fields = ("author", "text", "created_at")
