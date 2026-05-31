@@ -30,9 +30,11 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
     'blog',
+    'corsheaders',
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -41,7 +43,6 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
-
 ROOT_URLCONF = 'post.urls'
 
 TEMPLATES = [
@@ -60,7 +61,6 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'post.wsgi.application'
-
 
 # Database
 
@@ -147,4 +147,9 @@ AUTHENTICATION_BACKENDS = [
 ]
 
 
-# Удалены настройки allauth (они не используются, т.к. allauth не установлен)
+CORS_ALLOW_ALL_ORIGINS = True   # для разработки
+# или конкретно:
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
