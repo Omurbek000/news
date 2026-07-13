@@ -6,7 +6,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import Category, Comment, Favorite, Message, Post, User
+from .models import Category, Comment, CommentLike, Favorite, Message, Post, User
 from .permissions import (
     IsAdminOrReadOnly,
     IsAuthorOrReadOnly,
@@ -94,11 +94,12 @@ class UserProfileView(generics.RetrieveAPIView):
     permission_classes = [permissions.AllowAny]
 
 
-class MeView(generics.RetrieveUpdateAPIView):
+class MeView(generics.RetrieveUpdateDestroyAPIView):
     """
-    GET   /api/users/me/ — свой профиль.
-    PUT   /api/users/me/ — редактировать профиль.
-    PATCH /api/users/me/ — частично редактировать.
+    GET    /api/users/me/ — свой профиль.
+    PUT    /api/users/me/ — редактировать профиль.
+    PATCH  /api/users/me/ — частично редактировать.
+    DELETE /api/users/me/ — удалить аккаунт.
     """
     permission_classes = [IsOwner]
 
@@ -109,6 +110,9 @@ class MeView(generics.RetrieveUpdateAPIView):
         if self.request.method in ("PUT", "PATCH"):
             return UserUpdateSerializer
         return UserProfileSerializer
+
+    def perform_destroy(self, instance):
+        instance.delete()
 
 
 # ─────────────────────────── CATEGORY ───────────────────────────
@@ -195,6 +199,16 @@ class CommentViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         post = get_object_or_404(Post, pk=self.kwargs["post_pk"])
         serializer.save(author=self.request.user, post=post)
+
+    @action(detail=True, methods=["post"], permission_classes=[permissions.IsAuthenticated])
+    def like(self, request, pk=None, post_pk=None):
+        """POST /api/posts/<post_pk>/comments/<id>/like/ — лайк/анлайк комментария."""
+        comment = get_object_or_404(Comment, pk=pk, post_id=post_pk)
+        like, created = CommentLike.objects.get_or_create(user=request.user, comment=comment)
+        if not created:
+            like.delete()
+            return Response({"detail": "Лайк убран.", "is_liked": False, "likes_count": comment.likes.count()})
+        return Response({"detail": "Лайк поставлен.", "is_liked": True, "likes_count": comment.likes.count()})
 
 
 # ─────────────────────────── FAVORITE ───────────────────────────

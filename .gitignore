@@ -127,8 +127,12 @@ celerybeat.pid
 # SageMath parsed files
 *.sage.py
 
+# MiMoCode
+.mimocode/
+
 # Environments
 .env
+.env.*
 .venv
 env/
 venv/

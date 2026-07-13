@@ -512,6 +512,39 @@ body {
   color: #f97316;
 }
 
+.reply-btn {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 0.8rem;
+  margin-top: 0.4rem;
+  transition: 0.2s;
+  padding: 0;
+}
+
+.reply-btn:hover {
+  color: #f97316;
+}
+
+.like-btn {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: 0.2s;
+  padding: 0;
+}
+
+.like-btn:hover {
+  color: #ef4444;
+}
+
+.like-btn.liked {
+  color: #ef4444;
+}
+
 .fav-btn {
   background: #1e293b;
   border: 1px solid #f97316;

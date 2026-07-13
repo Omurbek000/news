@@ -13,33 +13,33 @@ export default function Messages() {
     if (user) {
       api.get('/messages/').then(res => {
         const msgs = res.data.results || res.data;
-        const users = new Set();
+        const userMap = {};
         msgs.forEach(m => {
-          if (m.sender_username !== user.username) users.add(m.sender_username);
-          if (m.recipient_username !== user.username) users.add(m.recipient_username);
+          if (m.sender_username !== user.username && m.sender_id) {
+            if (!userMap[m.sender_username]) userMap[m.sender_username] = m.sender_id;
+          }
+          if (m.recipient_username !== user.username && m.recipient_id) {
+            if (!userMap[m.recipient_username]) userMap[m.recipient_username] = m.recipient_id;
+          }
         });
-        setDialogs(Array.from(users));
+        setDialogs(Object.entries(userMap).map(([username, id]) => ({ username, id })));
       });
     }
   }, [user]);
 
-  const loadDialog = async (username) => {
-    setSelectedUser(username);
-    const res = await api.get('/messages/');
-    const all = res.data.results || res.data;
-    const filtered = all.filter(m =>
-      (m.sender_username === username && m.recipient_username === user.username) ||
-      (m.sender_username === user.username && m.recipient_username === username)
-    );
-    setMessages(filtered);
+  const loadDialog = async (userId) => {
+    const dialogUser = dialogs.find(d => d.id === userId);
+    setSelectedUser(dialogUser);
+    const res = await api.get(`/messages/dialog/${userId}/`);
+    setMessages(res.data.results || res.data);
   };
 
   const sendMessage = async (e) => {
     e.preventDefault();
     if (!text.trim() || !selectedUser) return;
-    await api.post('/messages/', { recipient: selectedUser, text });
+    await api.post('/messages/', { recipient: selectedUser.id, text });
     setText('');
-    loadDialog(selectedUser);
+    loadDialog(selectedUser.id);
   };
 
   if (!user) return <div className="container">Требуется вход</div>;
@@ -52,19 +52,19 @@ export default function Messages() {
           <h3>Диалоги</h3>
           {dialogs.length === 0 && <p>Нет диалогов</p>}
           {dialogs.map(d => (
-            <div key={d} onClick={() => loadDialog(d)} style={{
+            <div key={d.id} onClick={() => loadDialog(d.id)} style={{
               padding: '0.6rem',
               marginBottom: '0.5rem',
               borderRadius: '40px',
-              background: selectedUser === d ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.05)',
+              background: selectedUser?.id === d.id ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.05)',
               cursor: 'pointer'
-            }}>{d}</div>
+            }}>{d.username}</div>
           ))}
         </div>
         <div className="chat-area">
           {selectedUser ? (
             <>
-              <h3>Чат с {selectedUser}</h3>
+              <h3>Чат с {selectedUser.username}</h3>
               <div style={{ maxHeight: '400px', overflowY: 'auto', marginBottom: '1rem' }}>
                 {messages.map(m => (
                   <div key={m.id} style={{ textAlign: m.sender_username === user.username ? 'right' : 'left', marginBottom: '0.7rem' }}>

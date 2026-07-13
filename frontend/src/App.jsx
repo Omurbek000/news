@@ -10,6 +10,7 @@ import Register from './pages/Register';
 import Profile from './pages/Profile';
 import Favorites from './pages/Favorites';
 import Messages from './pages/Messages';
+import Settings from './pages/Settings';
 
 function App() {
   return (
@@ -39,6 +40,11 @@ function App() {
           <Route path="/messages" element={
             <ProtectedRoute>
               <Messages />
+            </ProtectedRoute>
+          } />
+          <Route path="/profile/settings" element={
+            <ProtectedRoute>
+              <Settings />
             </ProtectedRoute>
           } />
         </Routes>

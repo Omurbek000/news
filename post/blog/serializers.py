@@ -3,7 +3,7 @@ from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import Category, Comment, Favorite, Message, Post, User
+from .models import Category, Comment, CommentLike, Favorite, Message, Post, User
 
 
 # ───────────────────────────── AUTH ─────────────────────────────
@@ -153,14 +153,20 @@ class PostListSerializer(serializers.ModelSerializer):
     comments_count = serializers.IntegerField(
         source="comments.count", read_only=True
     )
+    excerpt = serializers.SerializerMethodField()
 
     class Meta:
         model = Post
         fields = (
-            "id", "title", "image", "author", "category",
+            "id", "title", "text", "excerpt", "image", "author", "category",
             "status", "views", "favorites_count", "comments_count",
             "created_at",
         )
+
+    def get_excerpt(self, obj):
+        if obj.text:
+            return obj.text[:200] + "..." if len(obj.text) > 200 else obj.text
+        return ""
 
 
 class PostDetailSerializer(serializers.ModelSerializer):
@@ -207,10 +213,12 @@ class CommentSerializer(serializers.ModelSerializer):
 
     author = UserShortSerializer(read_only=True)
     replies = serializers.SerializerMethodField()
+    likes_count = serializers.SerializerMethodField()
+    is_liked = serializers.SerializerMethodField()
 
     class Meta:
         model = Comment
-        fields = ("id", "author", "parent", "text", "created_at", "replies")
+        fields = ("id", "author", "parent", "text", "created_at", "replies", "likes_count", "is_liked")
         read_only_fields = ("id", "author", "created_at")
 
     def get_replies(self, obj):
@@ -220,11 +228,19 @@ class CommentSerializer(serializers.ModelSerializer):
             ).data
         return []
 
+    def get_likes_count(self, obj):
+        return obj.likes.count()
+
+    def get_is_liked(self, obj):
+        request = self.context.get("request")
+        if request and request.user.is_authenticated:
+            return obj.likes.filter(user=request.user).exists()
+        return False
+
     def validate_parent(self, value):
         """Проверяем, что parent относится к тому же посту."""
         if value:
-            # self.context['view'] содержит kwargs['post_pk']
-            post_id = self.context['view'].kwargs.get('post_pk')
+            post_id = int(self.context['view'].kwargs.get('post_pk'))
             if value.post_id != post_id:
                 raise serializers.ValidationError("Ответ должен быть к комментарию этого же поста.")
         return value
@@ -236,12 +252,24 @@ class CommentSerializer(serializers.ModelSerializer):
 
 # ─────────────────────────── FAVORITE ───────────────────────────
 
+class FavoritePostSerializer(serializers.ModelSerializer):
+    """Краткая информация о посте для избранного."""
+
+    author = UserShortSerializer(read_only=True)
+
+    class Meta:
+        model = Post
+        fields = ("id", "title", "text", "image", "author", "created_at")
+
+
 class FavoriteSerializer(serializers.ModelSerializer):
     """Добавление/удаление поста из избранного."""
 
+    post_detail = FavoritePostSerializer(source="post", read_only=True)
+
     class Meta:
         model = Favorite
-        fields = ("id", "post", "created_at")
+        fields = ("id", "post", "post_detail", "created_at")
         read_only_fields = ("id", "created_at")
 
     def validate(self, attrs):
@@ -282,11 +310,13 @@ class MessageListSerializer(serializers.ModelSerializer):
     """Список сообщений в диалоге (без вложенного sender для скорости)."""
 
     sender_username = serializers.CharField(source="sender.username", read_only=True)
+    sender_id = serializers.IntegerField(source="sender.id", read_only=True)
     recipient_username = serializers.CharField(source="recipient.username", read_only=True)
+    recipient_id = serializers.IntegerField(source="recipient.id", read_only=True)
 
     class Meta:
         model = Message
         fields = (
-            "id", "sender_username", "recipient_username",
+            "id", "sender_username", "sender_id", "recipient_username", "recipient_id",
             "text", "created_at", "is_read",
         )

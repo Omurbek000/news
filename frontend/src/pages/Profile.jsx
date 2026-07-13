@@ -8,6 +8,7 @@ export default function Profile() {
     username: user?.username || '',
     email: user?.email || '',
     phone: user?.phone || '',
+    age: user?.age || '',
     bio: user?.bio || '',
   });
   const [avatarFile, setAvatarFile] = useState(null);
@@ -84,6 +85,14 @@ export default function Profile() {
             placeholder="Телефон"
             value={form.phone}
             onChange={e => setForm({ ...form, phone: e.target.value })}
+          />
+          <input
+            type="number"
+            placeholder="Возраст"
+            value={form.age}
+            onChange={e => setForm({ ...form, age: e.target.value ? Number(e.target.value) : '' })}
+            min="17"
+            max="100"
           />
           <textarea
             rows="3"

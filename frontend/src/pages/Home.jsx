@@ -93,7 +93,7 @@ export default function Home() {
           <div key={post.id} className="post-card">
             {post.image && (
               <img
-                src={post.image.startsWith('http') ? post.image : `http://127.0.0.1:8000${post.image}`}
+                src={post.image.startsWith('http') ? post.image : `http://127.0.0.1:8080${post.image}`}
                 alt={post.title}
                 className="post-image"
               />
@@ -106,7 +106,7 @@ export default function Home() {
                 <span>👁️ {post.views}</span>
                 <span>❤️ {post.favorites_count}</span>
               </div>
-              <p className="post-excerpt">{post.text?.substring(0, 200)}...</p>
+              <p className="post-excerpt">{post.excerpt}</p>
               <Link to={`/post/${post.id}`} className="read-more">Читать далее →</Link>
             </div>
           </div>

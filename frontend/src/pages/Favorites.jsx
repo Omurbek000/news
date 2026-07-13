@@ -22,14 +22,28 @@ export default function Favorites() {
     <div className="container">
       <h1 style={{ fontSize: '2rem', marginBottom: '1.5rem' }}>❤️ Избранное</h1>
       {favorites.length === 0 && <p>Нет избранных постов</p>}
-      {favorites.map(fav => (
-        <div key={fav.id} className="post-card" onClick={() => navigate(`/post/${fav.post.id}`)}>
-          <h2 className="post-title">{fav.post.title}</h2>
-          <div className="post-meta">📅 {new Date(fav.created_at).toLocaleDateString()}</div>
-          <div className="post-excerpt">{fav.post.text?.substring(0, 150)}...</div>
-          <button className="read-more">Читать →</button>
-        </div>
-      ))}
+      {favorites.map(fav => {
+        const post = fav.post_detail;
+        return (
+          <div key={fav.id} className="post-card" onClick={() => navigate(`/post/${fav.post}`)}>
+            {post?.image && (
+              <img
+                src={post.image.startsWith('http') ? post.image : `http://127.0.0.1:8080${post.image}`}
+                alt={post.title}
+                className="post-image"
+              />
+            )}
+            <div className="post-content">
+              <h2 className="post-title">{post?.title}</h2>
+              <div className="post-meta">
+                <span>{post?.author?.username}</span>
+                <span>📅 {new Date(fav.created_at).toLocaleDateString()}</span>
+              </div>
+              <div className="post-excerpt">{post?.text?.substring(0, 150)}...</div>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
