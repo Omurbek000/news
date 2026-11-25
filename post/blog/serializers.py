@@ -117,6 +117,17 @@ class UserProfileSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "created_at", "posts_count")
 
 
+class UserPublicProfileSerializer(serializers.ModelSerializer):
+    """Публичный профиль пользователя — без email, телефона и возраста."""
+
+    posts_count = serializers.IntegerField(source="posts.count", read_only=True)
+
+    class Meta:
+        model = User
+        fields = ("id", "username", "avatar", "bio", "created_at", "posts_count")
+        read_only_fields = fields
+
+
 class UserUpdateSerializer(serializers.ModelSerializer):
     """Редактирование профиля (только своё)."""
 
@@ -240,8 +251,8 @@ class CommentSerializer(serializers.ModelSerializer):
     def validate_parent(self, value):
         """Проверяем, что parent относится к тому же посту."""
         if value:
-            post_id = int(self.context['view'].kwargs.get('post_pk'))
-            if value.post_id != post_id:
+            post = self.context["view"].get_post()
+            if value.post_id != post.id:
                 raise serializers.ValidationError("Ответ должен быть к комментарию этого же поста.")
         return value
 
@@ -271,6 +282,13 @@ class FavoriteSerializer(serializers.ModelSerializer):
         model = Favorite
         fields = ("id", "post", "post_detail", "created_at")
         read_only_fields = ("id", "created_at")
+
+    def validate_post(self, value):
+        if value.status != "published":
+            raise serializers.ValidationError(
+                "Нельзя добавить неопубликованный пост в избранное."
+            )
+        return value
 
     def validate(self, attrs):
         user = self.context["request"].user

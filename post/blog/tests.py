@@ -102,6 +102,20 @@ class UserTests(TestCase):
         res = self.client.get(reverse("user_profile", args=[self.user.id]))
         self.assertEqual(res.status_code, status.HTTP_200_OK)
 
+    def test_public_profile_hides_private_fields(self):
+        res = self.client.get(reverse("user_profile", args=[self.user.id]))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertNotIn("email", res.data)
+        self.assertNotIn("phone", res.data)
+        self.assertNotIn("age", res.data)
+
+    def test_me_returns_private_fields(self):
+        self.client.force_authenticate(user=self.user)
+        res = self.client.get(reverse("me"))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIn("email", res.data)
+        self.assertIn("phone", res.data)
+
 
 class CategoryTests(TestCase):
     """Тесты категорий."""
@@ -284,6 +298,63 @@ class MessageTests(TestCase):
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         msg.refresh_from_db()
         self.assertTrue(msg.is_read)
+
+
+class DraftAccessTests(TestCase):
+    """Доступ к черновикам и защита от невалидных id."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.author = User.objects.create_user(username="draft_author", password="testpass123")
+        self.other = User.objects.create_user(username="other_user", password="testpass123")
+        self.draft = Post.objects.create(
+            title="Draft", text="Secret", author=self.author, status="draft"
+        )
+        self.published = Post.objects.create(
+            title="Published", text="Public", author=self.author, status="published"
+        )
+
+    def test_my_posts_requires_auth(self):
+        res = self.client.get(reverse("post-my"))
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_other_user_cannot_list_draft_comments(self):
+        self.client.force_authenticate(user=self.other)
+        res = self.client.get(f"/api/posts/{self.draft.id}/comments/")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_anonymous_cannot_list_draft_comments(self):
+        res = self.client.get(f"/api/posts/{self.draft.id}/comments/")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_author_can_list_draft_comments(self):
+        self.client.force_authenticate(user=self.author)
+        res = self.client.get(f"/api/posts/{self.draft.id}/comments/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+    def test_other_user_cannot_comment_on_draft(self):
+        self.client.force_authenticate(user=self.other)
+        res = self.client.post(f"/api/posts/{self.draft.id}/comments/", {"text": "Hack"})
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_author_can_comment_on_own_draft(self):
+        self.client.force_authenticate(user=self.author)
+        res = self.client.post(f"/api/posts/{self.draft.id}/comments/", {"text": "Note"})
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+
+    def test_non_numeric_post_id_returns_404(self):
+        res = self.client.get("/api/posts/abc/comments/")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_cannot_favorite_draft(self):
+        self.client.force_authenticate(user=self.other)
+        res = self.client.post(reverse("favorite-list"), {"post": self.draft.id})
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_can_favorite_published_post(self):
+        self.client.force_authenticate(user=self.other)
+        res = self.client.post(reverse("favorite-list"), {"post": self.published.id})
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
 
 
 class ChangePasswordTests(TestCase):
