@@ -3,6 +3,7 @@ from django.test import TestCase
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import Category, Comment, Favorite, Message, Post
 
@@ -385,3 +386,26 @@ class ChangePasswordTests(TestCase):
         }
         res = self.client.put(reverse("change_password"), data, format="json")
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_change_password_blacklists_old_refresh_tokens(self):
+        old_refresh = RefreshToken.for_user(self.user)
+        self.client.force_authenticate(user=self.user)
+        data = {
+            "old_password": "oldpass123",
+            "new_password": "NewStrongPass123!",
+            "new_password2": "NewStrongPass123!",
+        }
+        res = self.client.put(reverse("change_password"), data, format="json")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        self.client.force_authenticate(user=None)
+        res = self.client.post(
+            reverse("token_refresh"), {"refresh": str(old_refresh)}, format="json"
+        )
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        new_refresh = RefreshToken.for_user(self.user)
+        res = self.client.post(
+            reverse("token_refresh"), {"refresh": str(new_refresh)}, format="json"
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)

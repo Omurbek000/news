@@ -25,8 +25,8 @@ export default function Navbar() {
     setSearchQuery('');
   };
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     navigate('/');
     setShowMenu(false);
   };

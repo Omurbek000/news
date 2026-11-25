@@ -11,7 +11,6 @@ export default function Profile() {
     age: user?.age || '',
     bio: user?.bio || '',
   });
-  const [avatarFile, setAvatarFile] = useState(null);
   const [avatarPreview, setAvatarPreview] = useState(user?.avatar || null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -19,10 +18,10 @@ export default function Profile() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      await updateUser(form);
+      await updateUser({ ...form, age: form.age === '' ? null : Number(form.age) });
       setMessage('Профиль обновлён!');
       setTimeout(() => setMessage(''), 3000);
-    } catch (err) {
+    } catch {
       setError('Ошибка обновления');
       setTimeout(() => setError(''), 3000);
     }
@@ -31,13 +30,12 @@ export default function Profile() {
   const handleAvatarChange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    setAvatarFile(file);
     setAvatarPreview(URL.createObjectURL(file));
     try {
       await uploadAvatar(file);
       setMessage('Аватар обновлён!');
       setTimeout(() => setMessage(''), 3000);
-    } catch (err) {
+    } catch {
       setError('Ошибка загрузки аватара');
       setTimeout(() => setError(''), 3000);
     }

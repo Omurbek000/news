@@ -35,6 +35,16 @@ export const AuthProvider = ({ children }) => {
     if (user) fetchUnreadCount();
   }, [user, fetchUnreadCount]);
 
+  useEffect(() => {
+    const handleForcedLogout = () => {
+      localStorage.removeItem('tokens');
+      setUser(null);
+      setUnreadCount(0);
+    };
+    window.addEventListener('auth:logout', handleForcedLogout);
+    return () => window.removeEventListener('auth:logout', handleForcedLogout);
+  }, []);
+
   const login = async (username, password) => {
     const res = await api.post('/auth/login/', { username, password });
     localStorage.setItem('tokens', JSON.stringify({ access: res.data.access, refresh: res.data.refresh }));
@@ -44,7 +54,21 @@ export const AuthProvider = ({ children }) => {
   };
 
   const register = (data) => api.post('/auth/register/', data);
-  const logout = () => { localStorage.removeItem('tokens'); setUser(null); setUnreadCount(0); };
+
+  const logout = async () => {
+    const tokens = JSON.parse(localStorage.getItem('tokens') || '{}');
+    if (tokens.refresh) {
+      try {
+        await api.post('/auth/logout/', { refresh: tokens.refresh });
+      } catch {
+        /* токен уже недействителен — всё равно чистим локально */
+      }
+    }
+    localStorage.removeItem('tokens');
+    setUser(null);
+    setUnreadCount(0);
+  };
+
   const updateUser = (data) => api.patch('/users/me/', data).then(res => setUser(res.data));
 
   const uploadAvatar = async (file) => {

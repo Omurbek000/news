@@ -43,7 +43,7 @@ export default function Settings() {
     setDelError('');
     try {
       await api.delete('/users/me/');
-      logout();
+      await logout();
       navigate('/');
     } catch (err) {
       setDelError(err.response?.data?.detail || 'Не удалось удалить аккаунт');
