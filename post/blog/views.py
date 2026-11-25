@@ -1,4 +1,5 @@
 from django.db.models import F, Q
+from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters, generics, permissions, status, viewsets
@@ -6,7 +7,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import Category, Comment, Favorite, Message, Post, User
+from .models import Category, Comment, CommentLike, Favorite, Message, Post, User
 from .permissions import (
     IsAdminOrReadOnly,
     IsAuthorOrReadOnly,
@@ -27,6 +28,7 @@ from .serializers import (
     PostListSerializer,
     RegisterSerializer,
     UserProfileSerializer,
+    UserPublicProfileSerializer,
     UserUpdateSerializer,
 )
 
@@ -90,15 +92,16 @@ class ChangePasswordView(generics.UpdateAPIView):
 class UserProfileView(generics.RetrieveAPIView):
     """GET /api/users/<id>/ — публичный профиль любого пользователя."""
     queryset = User.objects.all()
-    serializer_class = UserProfileSerializer
+    serializer_class = UserPublicProfileSerializer
     permission_classes = [permissions.AllowAny]
 
 
-class MeView(generics.RetrieveUpdateAPIView):
+class MeView(generics.RetrieveUpdateDestroyAPIView):
     """
-    GET   /api/users/me/ — свой профиль.
-    PUT   /api/users/me/ — редактировать профиль.
-    PATCH /api/users/me/ — частично редактировать.
+    GET    /api/users/me/ — свой профиль.
+    PUT    /api/users/me/ — редактировать профиль.
+    PATCH  /api/users/me/ — частично редактировать.
+    DELETE /api/users/me/ — удалить аккаунт.
     """
     permission_classes = [IsOwner]
 
@@ -109,6 +112,9 @@ class MeView(generics.RetrieveUpdateAPIView):
         if self.request.method in ("PUT", "PATCH"):
             return UserUpdateSerializer
         return UserProfileSerializer
+
+    def perform_destroy(self, instance):
+        instance.delete()
 
 
 # ─────────────────────────── CATEGORY ───────────────────────────
@@ -136,7 +142,9 @@ class PostViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         if self.action == "my":
-            return Post.objects.filter(author=self.request.user)
+            return Post.objects.filter(author=self.request.user).select_related(
+                "author", "category"
+            )
         return Post.objects.filter(status="published").select_related(
             "author", "category"
         )
@@ -151,7 +159,7 @@ class PostViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action in ("list", "retrieve"):
             return [permissions.AllowAny()]
-        if self.action == "create":
+        if self.action in ("create", "my"):
             return [permissions.IsAuthenticated()]
         # update / partial_update / destroy — только автор поста
         return [IsAuthorOrReadOnly()]
@@ -186,15 +194,40 @@ class CommentViewSet(viewsets.ModelViewSet):
     serializer_class = CommentSerializer
     permission_classes = [IsAuthorOrReadOnly]
 
+    def get_post(self):
+        """Пост из URL; черновик доступен только его автору."""
+        if getattr(self, "swagger_fake_view", False):
+            raise Http404
+        try:
+            post_id = int(self.kwargs.get("post_pk"))
+        except (TypeError, ValueError):
+            raise Http404
+        post = get_object_or_404(Post, pk=post_id)
+        if post.status != "published" and post.author != self.request.user:
+            raise Http404
+        return post
+
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return Comment.objects.none()
+        post = self.get_post()
         return Comment.objects.filter(
-            post_id=self.kwargs["post_pk"],
+            post=post,
             parent=None,
         ).select_related("author")
 
     def perform_create(self, serializer):
-        post = get_object_or_404(Post, pk=self.kwargs["post_pk"])
-        serializer.save(author=self.request.user, post=post)
+        serializer.save(author=self.request.user, post=self.get_post())
+
+    @action(detail=True, methods=["post"], permission_classes=[permissions.IsAuthenticated])
+    def like(self, request, pk=None, post_pk=None):
+        """POST /api/posts/<post_pk>/comments/<id>/like/ — лайк/анлайк комментария."""
+        comment = get_object_or_404(Comment, pk=pk, post=self.get_post())
+        like, created = CommentLike.objects.get_or_create(user=request.user, comment=comment)
+        if not created:
+            like.delete()
+            return Response({"detail": "Лайк убран.", "is_liked": False, "likes_count": comment.likes.count()})
+        return Response({"detail": "Лайк поставлен.", "is_liked": True, "likes_count": comment.likes.count()})
 
 
 # ─────────────────────────── FAVORITE ───────────────────────────
@@ -206,7 +239,9 @@ class FavoriteViewSet(viewsets.GenericViewSet):
 
     def get_queryset(self):
         if self.request.user.is_authenticated:
-            return Favorite.objects.filter(user=self.request.user).select_related("post")
+            return Favorite.objects.filter(
+                user=self.request.user, post__status="published"
+            ).select_related("post")
         return Favorite.objects.none()
 
     def list(self, request):

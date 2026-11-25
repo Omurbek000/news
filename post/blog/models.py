@@ -96,6 +96,20 @@ class Comment(models.Model):
         verbose_name_plural = "Комментарии"
 
 
+class CommentLike(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="comment_likes")
+    comment = models.ForeignKey(Comment, on_delete=models.CASCADE, related_name="likes")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.user.username} лайкнул комментарий #{self.comment.id}"
+
+    class Meta:
+        unique_together = ('user', 'comment')
+        verbose_name = "Лайк комментария"
+        verbose_name_plural = "Лайки комментариев"
+
+
 class Favorite(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="favorites")
     post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name="favorited_by")

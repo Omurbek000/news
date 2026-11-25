@@ -1,6 +1,9 @@
-from django.urls import include, path
+from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenRefreshView
+from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
+from django.conf import settings
+from django.conf.urls.static import static
 
 from . import views
 
@@ -15,6 +18,7 @@ router.register(
 router.register(r"favorites", views.FavoriteViewSet, basename="favorite")
 router.register(r"messages", views.MessageViewSet, basename="message")
 
+# Основные маршруты API (без префикса /api/, так как он добавлен в корневом urls.py)
 urlpatterns = [
     # Auth
     path("auth/register/", views.RegisterView.as_view(), name="register"),
@@ -30,3 +34,12 @@ urlpatterns = [
     # Router (posts, comments, categories, favorites, messages)
     path("", include(router.urls)),
 ]
+
+# Swagger/ReDoc – вынесены отдельно (чтобы не мешались, но можно оставить)
+if settings.DEBUG:
+    urlpatterns += [
+        path("schema/", SpectacularAPIView.as_view(), name="schema"),
+        path("swagger/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
+        path("redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
+    ]
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

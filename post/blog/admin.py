@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from django.utils.html import format_html
 
-from .models import Category, Comment, Favorite, Message, Post, User
+from .models import Category, Comment, CommentLike, Favorite, Message, Post, User
 
 
 # ───────────────────────────── USER ─────────────────────────────
@@ -112,6 +112,19 @@ class CommentAdmin(admin.ModelAdmin):
     def short_text(self, obj):
         return obj.text[:60] + "..." if len(obj.text) > 60 else obj.text
     short_text.short_description = "Текст"
+
+
+# ─────────────────────────── COMMENT LIKE ────────────────────────
+
+@admin.register(CommentLike)
+class CommentLikeAdmin(admin.ModelAdmin):
+    list_display = ("id", "user", "comment", "created_at")
+    list_display_links = ("id",)
+    list_filter = ("created_at",)
+    search_fields = ("user__username", "comment__text")
+    ordering = ("-created_at",)
+    readonly_fields = ("created_at",)
+    autocomplete_fields = ("user", "comment")
 
 
 # ─────────────────────────── FAVORITE ───────────────────────────
