@@ -158,12 +158,8 @@ class PostListSerializer(serializers.ModelSerializer):
 
     author = UserShortSerializer(read_only=True)
     category = CategorySerializer(read_only=True)
-    favorites_count = serializers.IntegerField(
-        source="favorited_by.count", read_only=True
-    )
-    comments_count = serializers.IntegerField(
-        source="comments.count", read_only=True
-    )
+    favorites_count = serializers.IntegerField(read_only=True)
+    comments_count = serializers.IntegerField(read_only=True)
     excerpt = serializers.SerializerMethodField()
 
     class Meta:
@@ -185,24 +181,35 @@ class PostDetailSerializer(serializers.ModelSerializer):
 
     author = UserShortSerializer(read_only=True)
     category = CategorySerializer(read_only=True)
-    favorites_count = serializers.IntegerField(
-        source="favorited_by.count", read_only=True
-    )
+    favorites_count = serializers.IntegerField(read_only=True)
     is_favorited = serializers.SerializerMethodField()
+    favorite_id = serializers.SerializerMethodField()
 
     class Meta:
         model = Post
         fields = (
             "id", "title", "text", "image", "author", "category",
-            "status", "views", "favorites_count", "is_favorited",
+            "status", "views", "favorites_count", "is_favorited", "favorite_id",
             "created_at", "updated_at",
         )
 
+    def _get_favorite_id(self, obj):
+        if not hasattr(self, "_favorite_ids"):
+            self._favorite_ids = {}
+        if obj.pk not in self._favorite_ids:
+            request = self.context.get("request")
+            favorite_id = None
+            if request and request.user.is_authenticated:
+                favorite = obj.favorited_by.filter(user=request.user).only("id").first()
+                favorite_id = favorite.id if favorite else None
+            self._favorite_ids[obj.pk] = favorite_id
+        return self._favorite_ids[obj.pk]
+
+    def get_favorite_id(self, obj):
+        return self._get_favorite_id(obj)
+
     def get_is_favorited(self, obj):
-        request = self.context.get("request")
-        if request and request.user.is_authenticated:
-            return obj.favorited_by.filter(user=request.user).exists()
-        return False
+        return self._get_favorite_id(obj) is not None
 
 
 class PostCreateUpdateSerializer(serializers.ModelSerializer):

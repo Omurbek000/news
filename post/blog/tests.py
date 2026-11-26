@@ -206,6 +206,43 @@ class PostTests(TestCase):
         res = self.client.get(f"{reverse('post-list')}?category={self.category.id}")
         self.assertEqual(res.status_code, status.HTTP_200_OK)
 
+    def test_ordering_by_favorites_count(self):
+        other = User.objects.create_user(username="fan2", password="testpass123")
+        low = Post.objects.create(
+            title="Low", text="Text", author=self.user, status="published"
+        )
+        high = Post.objects.create(
+            title="High", text="Text", author=self.user, status="published"
+        )
+        Favorite.objects.create(user=self.user, post=low)
+        Favorite.objects.create(user=self.user, post=high)
+        Favorite.objects.create(user=other, post=high)
+
+        res = self.client.get(f"{reverse('post-list')}?ordering=-favorites_count")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        results = res.data["results"]
+        ids = [post["id"] for post in results]
+        self.assertEqual(results[0]["id"], high.id)
+        self.assertEqual(results[0]["favorites_count"], 2)
+        self.assertEqual(results[1]["id"], low.id)
+        self.assertEqual(results[1]["favorites_count"], 1)
+
+    def test_detail_returns_favorite_id(self):
+        self.client.force_authenticate(user=self.user)
+        favorite = Favorite.objects.create(user=self.user, post=self.post)
+        res = self.client.get(reverse("post-detail", args=[self.post.id]))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["favorite_id"], favorite.id)
+        self.assertTrue(res.data["is_favorited"])
+        self.assertEqual(res.data["favorites_count"], 1)
+
+    def test_detail_favorite_id_is_null_when_not_favorited(self):
+        self.client.force_authenticate(user=self.user)
+        res = self.client.get(reverse("post-detail", args=[self.post.id]))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIsNone(res.data["favorite_id"])
+        self.assertFalse(res.data["is_favorited"])
+
 
 class CommentTests(TestCase):
     """Тесты комментариев."""
@@ -318,6 +355,26 @@ class DraftAccessTests(TestCase):
     def test_my_posts_requires_auth(self):
         res = self.client.get(reverse("post-my"))
         self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_author_can_retrieve_own_draft(self):
+        self.client.force_authenticate(user=self.author)
+        res = self.client.get(f"/api/posts/{self.draft.id}/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["title"], "Draft")
+
+    def test_other_user_cannot_retrieve_draft(self):
+        self.client.force_authenticate(user=self.other)
+        res = self.client.get(f"/api/posts/{self.draft.id}/")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_anonymous_cannot_retrieve_draft(self):
+        res = self.client.get(f"/api/posts/{self.draft.id}/")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_draft_not_in_public_list(self):
+        res = self.client.get(reverse("post-list"))
+        ids = [post["id"] for post in res.data["results"]]
+        self.assertNotIn(self.draft.id, ids)
 
     def test_other_user_cannot_list_draft_comments(self):
         self.client.force_authenticate(user=self.other)

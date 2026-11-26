@@ -1,4 +1,4 @@
-from django.db.models import F, Q
+from django.db.models import Count, F, Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
@@ -128,7 +128,7 @@ class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
     GET /api/categories/<id>/ — одна категория (все).
     Создание/удаление — только через /admin/ (IsAdminOrReadOnly).
     """
-    queryset = Category.objects.all()
+    queryset = Category.objects.order_by("name")
     serializer_class = CategorySerializer
     permission_classes = [IsAdminOrReadOnly]
 
@@ -140,17 +140,24 @@ class PostViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ["category", "status", "author"]
     search_fields = ["title", "text"]
-    ordering_fields = ["created_at", "views"]
+    ordering_fields = ["created_at", "views", "favorites_count"]
     ordering = ["-created_at"]
 
     def get_queryset(self):
-        if self.action == "my":
-            return Post.objects.filter(author=self.request.user).select_related(
-                "author", "category"
+        queryset = (
+            Post.objects.select_related("author", "category")
+            .annotate(
+                favorites_count=Count("favorited_by", distinct=True),
+                comments_count=Count("comments", distinct=True),
             )
-        return Post.objects.filter(status="published").select_related(
-            "author", "category"
+            .order_by("-created_at")
         )
+        user = self.request.user
+        if self.action == "my":
+            return queryset.filter(author=user)
+        if self.action == "list" or not user.is_authenticated:
+            return queryset.filter(status="published")
+        return queryset.filter(Q(status="published") | Q(author=user))
 
     def get_serializer_class(self):
         if self.action in ("create", "update", "partial_update"):
@@ -244,7 +251,7 @@ class FavoriteViewSet(viewsets.GenericViewSet):
         if self.request.user.is_authenticated:
             return Favorite.objects.filter(
                 user=self.request.user, post__status="published"
-            ).select_related("post")
+            ).select_related("post").order_by("-created_at")
         return Favorite.objects.none()
 
     def list(self, request):

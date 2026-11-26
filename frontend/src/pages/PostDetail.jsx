@@ -181,14 +181,16 @@ export default function PostDetail() {
 
   const handleFavorite = async () => {
     if (!user) return;
-    if (post?.is_favorited) {
-      const favs = await api.get('/favorites/');
-      const favItem = (favs.data.results || favs.data).find(f => f.post === post.id);
-      if (favItem) await api.delete(`/favorites/${favItem.id}/`);
-    } else {
-      await api.post('/favorites/', { post: post.id });
+    try {
+      if (post?.favorite_id) {
+        await api.delete(`/favorites/${post.favorite_id}/`);
+      } else {
+        await api.post('/favorites/', { post: post.id });
+      }
+      fetchPost();
+    } catch (err) {
+      console.error('Favorite error:', err);
     }
-    fetchPost();
   };
 
   if (!post) return <div className="container">Загрузка...</div>;
