@@ -2,6 +2,8 @@ from django.db.models import Count, F, Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import filters, generics, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -20,6 +22,7 @@ from .serializers import (
     CategorySerializer,
     ChangePasswordSerializer,
     CommentSerializer,
+    DialogSerializer,
     FavoriteSerializer,
     LoginSerializer,
     MessageListSerializer,
@@ -284,10 +287,14 @@ class FavoriteViewSet(viewsets.GenericViewSet):
 class MessageViewSet(viewsets.GenericViewSet):
     """Личные сообщения: список диалогов, переписка, отправка, пометка прочитанным."""
     permission_classes = [IsSenderOrRecipient]
+    dialog_default_limit = 50
+    dialog_max_limit = 100
 
     def get_serializer_class(self):
         if self.action == "list":
             return MessageListSerializer
+        if self.action == "dialogs":
+            return DialogSerializer
         return MessageSerializer
 
     def get_queryset(self):
@@ -313,21 +320,87 @@ class MessageViewSet(viewsets.GenericViewSet):
         serializer.save()
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
+    @extend_schema(responses=DialogSerializer(many=True))
+    @action(detail=False, methods=["get"])
+    def dialogs(self, request):
+        """GET /api/messages/dialogs/ — список диалогов с числом непрочитанных."""
+        messages = (
+            Message.objects.filter(
+                Q(sender=request.user) | Q(recipient=request.user)
+            )
+            .select_related("sender", "recipient")
+            .order_by("-created_at", "-id")
+        )
+        dialogs = {}
+        for message in messages:
+            other = (
+                message.recipient
+                if message.sender_id == request.user.id
+                else message.sender
+            )
+            dialog = dialogs.get(other.id)
+            if dialog is None:
+                dialog = {
+                    "user_id": other.id,
+                    "username": other.username,
+                    "avatar": other.avatar,
+                    "last_message": message.text,
+                    "last_message_at": message.created_at,
+                    "unread_count": 0,
+                }
+                dialogs[other.id] = dialog
+            if message.recipient_id == request.user.id and not message.is_read:
+                dialog["unread_count"] += 1
+        serializer = DialogSerializer(
+            list(dialogs.values()), many=True, context={"request": request}
+        )
+        return Response(serializer.data)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("user_id", OpenApiTypes.INT, OpenApiParameter.PATH),
+            OpenApiParameter("limit", OpenApiTypes.INT, OpenApiParameter.QUERY),
+        ],
+        responses=MessageListSerializer(many=True),
+    )
     @action(detail=False, methods=["get"], url_path="dialog/(?P<user_id>[^/.]+)")
     def dialog(self, request, user_id=None):
-        """GET /api/messages/dialog/<user_id>/ — переписка с пользователем."""
+        """GET /api/messages/dialog/<user_id>/?limit=N — последние сообщения переписки."""
         other_user = get_object_or_404(User, pk=user_id)
-        messages = Message.objects.filter(
-            Q(sender=request.user, recipient=other_user) |
-            Q(sender=other_user, recipient=request.user)
-        ).order_by("created_at")
-        messages.filter(recipient=request.user, is_read=False).update(is_read=True)
-        page = self.paginate_queryset(messages)
-        if page is not None:
-            serializer = MessageListSerializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
+        try:
+            limit = int(request.query_params.get("limit", self.dialog_default_limit))
+        except (TypeError, ValueError):
+            limit = self.dialog_default_limit
+        limit = max(1, min(limit, self.dialog_max_limit))
+        messages = list(
+            Message.objects.filter(
+                Q(sender=request.user, recipient=other_user) |
+                Q(sender=other_user, recipient=request.user)
+            )
+            .select_related("sender", "recipient")
+            .order_by("-created_at", "-id")[:limit]
+        )
+        messages.reverse()
         serializer = MessageListSerializer(messages, many=True)
         return Response(serializer.data)
+
+    @extend_schema(
+        parameters=[OpenApiParameter("user_id", OpenApiTypes.INT, OpenApiParameter.PATH)],
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="dialog/(?P<user_id>[^/.]+)/read",
+    )
+    def dialog_read(self, request, user_id=None):
+        """POST /api/messages/dialog/<user_id>/read/ — прочитать все входящие."""
+        other_user = get_object_or_404(User, pk=user_id)
+        marked_read = Message.objects.filter(
+            sender=other_user, recipient=request.user, is_read=False
+        ).update(is_read=True)
+        return Response(
+            {"detail": "Сообщения отмечены как прочитанные.", "marked_read": marked_read}
+        )
 
     @action(detail=True, methods=["post"])
     def read(self, request, pk=None):

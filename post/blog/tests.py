@@ -305,6 +305,7 @@ class MessageTests(TestCase):
         self.client = APIClient()
         self.user1 = User.objects.create_user(username="alice", password="testpass123")
         self.user2 = User.objects.create_user(username="bob", password="testpass123")
+        self.user3 = User.objects.create_user(username="carol", password="testpass123")
 
     def test_send_message(self):
         self.client.force_authenticate(user=self.user1)
@@ -336,6 +337,84 @@ class MessageTests(TestCase):
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         msg.refresh_from_db()
         self.assertTrue(msg.is_read)
+
+    def test_dialogs_requires_auth(self):
+        res = self.client.get("/api/messages/dialogs/")
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_dialogs_lists_peers_with_unread_and_last_message(self):
+        self.client.force_authenticate(user=self.user1)
+        Message.objects.create(sender=self.user1, recipient=self.user2, text="First")
+        Message.objects.create(sender=self.user2, recipient=self.user1, text="Unread 1")
+        Message.objects.create(sender=self.user2, recipient=self.user1, text="Unread 2")
+        Message.objects.create(sender=self.user3, recipient=self.user1, text="From carol", is_read=True)
+
+        res = self.client.get("/api/messages/dialogs/")
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        dialogs = {dialog["username"]: dialog for dialog in res.data}
+        self.assertEqual(set(dialogs), {"bob", "carol"})
+        self.assertEqual(dialogs["bob"]["user_id"], self.user2.id)
+        self.assertEqual(dialogs["bob"]["unread_count"], 2)
+        self.assertEqual(dialogs["bob"]["last_message"], "Unread 2")
+        self.assertEqual(dialogs["carol"]["unread_count"], 0)
+        self.assertEqual(dialogs["carol"]["last_message"], "From carol")
+
+    def test_dialog_returns_latest_messages_with_limit(self):
+        self.client.force_authenticate(user=self.user1)
+        for index in range(12):
+            sender, recipient = (
+                (self.user1, self.user2) if index % 2 == 0 else (self.user2, self.user1)
+            )
+            Message.objects.create(sender=sender, recipient=recipient, text=f"msg {index}")
+
+        res = self.client.get(f"/api/messages/dialog/{self.user2.id}/?limit=5")
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res.data), 5)
+        self.assertEqual(
+            [message["text"] for message in res.data],
+            ["msg 7", "msg 8", "msg 9", "msg 10", "msg 11"],
+        )
+
+    def test_dialog_does_not_mark_messages_read(self):
+        self.client.force_authenticate(user=self.user1)
+        msg = Message.objects.create(
+            sender=self.user2, recipient=self.user1, text="Unread", is_read=False
+        )
+
+        res = self.client.get(f"/api/messages/dialog/{self.user2.id}/")
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        msg.refresh_from_db()
+        self.assertFalse(msg.is_read)
+
+    def test_dialog_read_marks_all_incoming(self):
+        self.client.force_authenticate(user=self.user1)
+        incoming = [
+            Message.objects.create(
+                sender=self.user2, recipient=self.user1, text=f"in {index}"
+            )
+            for index in range(3)
+        ]
+        outgoing = Message.objects.create(
+            sender=self.user1, recipient=self.user2, text="out"
+        )
+        foreign = Message.objects.create(
+            sender=self.user2, recipient=self.user3, text="not mine"
+        )
+
+        res = self.client.post(f"/api/messages/dialog/{self.user2.id}/read/")
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["marked_read"], 3)
+        for msg in incoming:
+            msg.refresh_from_db()
+            self.assertTrue(msg.is_read)
+        outgoing.refresh_from_db()
+        self.assertFalse(outgoing.is_read)
+        foreign.refresh_from_db()
+        self.assertFalse(foreign.is_read)
 
 
 class DraftAccessTests(TestCase):

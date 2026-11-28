@@ -24,12 +24,12 @@ export const AuthProvider = ({ children }) => {
 
   const fetchUnreadCount = useCallback(async () => {
     try {
-      const res = await api.get('/messages/');
-      const msgs = res.data.results || res.data;
-      const count = msgs.filter(m => m.is_read === false && m.recipient_username === user?.username).length;
+      const res = await api.get('/messages/dialogs/');
+      const dialogs = res.data.results || res.data;
+      const count = dialogs.reduce((sum, dialog) => sum + (dialog.unread_count || 0), 0);
       setUnreadCount(count);
     } catch { /* ignore */ }
-  }, [user]);
+  }, []);
 
   useEffect(() => {
     if (user) fetchUnreadCount();
@@ -82,7 +82,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, updateUser, uploadAvatar, unreadCount }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, updateUser, uploadAvatar, unreadCount, refreshUnreadCount: fetchUnreadCount }}>
       {children}
     </AuthContext.Provider>
   );

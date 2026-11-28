@@ -1,45 +1,46 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import api from '../api/axios';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function Messages() {
-  const { user } = useAuth();
+  const { user, refreshUnreadCount } = useAuth();
   const [dialogs, setDialogs] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
+  const chatRef = useRef(null);
+
+  const loadDialogs = () => api.get('/messages/dialogs/').then(res => {
+    setDialogs(res.data.results || res.data);
+  });
 
   useEffect(() => {
-    if (user) {
-      api.get('/messages/').then(res => {
-        const msgs = res.data.results || res.data;
-        const userMap = {};
-        msgs.forEach(m => {
-          if (m.sender_username !== user.username && m.sender_id) {
-            if (!userMap[m.sender_username]) userMap[m.sender_username] = m.sender_id;
-          }
-          if (m.recipient_username !== user.username && m.recipient_id) {
-            if (!userMap[m.recipient_username]) userMap[m.recipient_username] = m.recipient_id;
-          }
-        });
-        setDialogs(Object.entries(userMap).map(([username, id]) => ({ username, id })));
-      });
-    }
+    if (!user) return;
+    api.get('/messages/dialogs/').then(res => {
+      setDialogs(res.data.results || res.data);
+    });
   }, [user]);
 
+  useEffect(() => {
+    if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
+  }, [messages]);
+
   const loadDialog = async (userId) => {
-    const dialogUser = dialogs.find(d => d.id === userId);
-    setSelectedUser(dialogUser);
+    const dialogUser = dialogs.find(d => d.user_id === userId);
+    if (dialogUser) setSelectedUser(dialogUser);
     const res = await api.get(`/messages/dialog/${userId}/`);
     setMessages(res.data.results || res.data);
+    await api.post(`/messages/dialog/${userId}/read/`);
+    await loadDialogs();
+    refreshUnreadCount();
   };
 
   const sendMessage = async (e) => {
     e.preventDefault();
     if (!text.trim() || !selectedUser) return;
-    await api.post('/messages/', { recipient: selectedUser.id, text });
+    await api.post('/messages/', { recipient: selectedUser.user_id, text });
     setText('');
-    loadDialog(selectedUser.id);
+    await loadDialog(selectedUser.user_id);
   };
 
   if (!user) return <div className="container">Требуется вход</div>;
@@ -52,20 +53,34 @@ export default function Messages() {
           <h3>Диалоги</h3>
           {dialogs.length === 0 && <p>Нет диалогов</p>}
           {dialogs.map(d => (
-            <div key={d.id} onClick={() => loadDialog(d.id)} style={{
+            <div key={d.user_id} onClick={() => loadDialog(d.user_id)} style={{
               padding: '0.6rem',
               marginBottom: '0.5rem',
               borderRadius: '40px',
-              background: selectedUser?.id === d.id ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.05)',
+              background: selectedUser?.user_id === d.user_id ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.05)',
               cursor: 'pointer'
-            }}>{d.username}</div>
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+                <strong>{d.username}</strong>
+                {d.unread_count > 0 && <span className="badge">{d.unread_count}</span>}
+              </div>
+              {d.last_message && (
+                <div style={{
+                  fontSize: '0.8rem',
+                  opacity: 0.7,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap'
+                }}>{d.last_message}</div>
+              )}
+            </div>
           ))}
         </div>
         <div className="chat-area">
           {selectedUser ? (
             <>
               <h3>Чат с {selectedUser.username}</h3>
-              <div style={{ maxHeight: '400px', overflowY: 'auto', marginBottom: '1rem' }}>
+              <div ref={chatRef} style={{ maxHeight: '400px', overflowY: 'auto', marginBottom: '1rem' }}>
                 {messages.map(m => (
                   <div key={m.id} style={{ textAlign: m.sender_username === user.username ? 'right' : 'left', marginBottom: '0.7rem' }}>
                     <div style={{

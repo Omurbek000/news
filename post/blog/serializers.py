@@ -345,3 +345,14 @@ class MessageListSerializer(serializers.ModelSerializer):
             "id", "sender_username", "sender_id", "recipient_username", "recipient_id",
             "text", "created_at", "is_read",
         )
+
+
+class DialogSerializer(serializers.Serializer):
+    """Сводка диалога: собеседник, последнее сообщение и число непрочитанных."""
+
+    user_id = serializers.IntegerField()
+    username = serializers.CharField()
+    avatar = serializers.ImageField(read_only=True)
+    last_message = serializers.CharField()
+    last_message_at = serializers.DateTimeField()
+    unread_count = serializers.IntegerField()
